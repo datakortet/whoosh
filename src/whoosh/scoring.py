@@ -500,6 +500,30 @@ class Weighting(WeightingModel):
                                     matcher.id(), matcher.weight())
 
 
+class Weighting(WeightingModel):
+    """This class provides backwards-compatibility with the old weighting
+    class architecture, so any existing custom scorers don't need to be
+    rewritten.
+    """
+
+    def scorer(self, searcher, fieldname, text, qf=1):
+        return self.CompatibilityScorer(searcher, fieldname, text, self.score)
+
+    def score(self, searcher, fieldname, text, docnum, weight):
+        raise NotImplementedError
+
+    class CompatibilityScorer(BaseScorer):
+        def __init__(self, searcher, fieldname, text, scoremethod):
+            self.searcher = searcher
+            self.fieldname = fieldname
+            self.text = text
+            self.scoremethod = scoremethod
+
+        def score(self, matcher):
+            return self.scoremethod(self.searcher, self.fieldname, self.text,
+                                    matcher.id(), matcher.weight())
+
+
 class FunctionWeighting(WeightingModel):
     """Uses a supplied function to do the scoring. For simple scoring functions
     and experiments this may be simpler to use than writing a full weighting
@@ -515,6 +539,9 @@ class FunctionWeighting(WeightingModel):
             poses = matcher.value_as("positions")
             return 1.0 / (poses[0] + 1)
 
+        def max_quality_fn():
+            return 1
+
         pos_weighting = scoring.FunctionWeighting(pos_score_fn)
         with myindex.searcher(weighting=pos_weighting) as s:
             results = s.search(q)
@@ -526,22 +553,30 @@ class FunctionWeighting(WeightingModel):
     write a real model/scorer combo so you can cache them on the object.)
     """
 
-    def __init__(self, fn):
-        self.fn = fn
+    def __init__(self, scoring_fn, max_quality_fn):
+        self.scoring_fn = scoring_fn
+        self.max_quality_fn = max_quality_fn
 
     def scorer(self, searcher, fieldname, text, qf=1):
-        return self.FunctionScorer(self.fn, searcher, fieldname, text, qf=qf)
+        return self.FunctionScorer(self.scoring_fn, self.max_quality_fn, searcher, fieldname, text, qf=qf)
 
     class FunctionScorer(BaseScorer):
-        def __init__(self, fn, searcher, fieldname, text, qf=1):
-            self.fn = fn
+        def __init__(self, scoring_fn, max_quality_fn, searcher, fieldname, text, qf=1):
+            self.scoring_fn = scoring_fn
+            self.max_quality_fn = max_quality_fn
             self.searcher = searcher
             self.fieldname = fieldname
             self.text = text
             self.qf = qf
 
         def score(self, matcher):
-            return self.fn(self.searcher, self.fieldname, self.text, matcher)
+            return self.scoring_fn(self.searcher, self.fieldname, self.text, matcher)
+
+        def max_quality(self):
+            return self.max_quality_fn()
+
+        def supports_block_quality(self):
+            return False
 
 
 class MultiWeighting(WeightingModel):
