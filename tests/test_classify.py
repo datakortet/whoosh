@@ -1,9 +1,10 @@
 from __future__ import with_statement
 
-from whoosh import analysis, classify, fields, formats, query
+from nose.tools import assert_equal  #@UnresolvedImport
+
+from whoosh import analysis, classify, fields, formats
 from whoosh.compat import u, text_type
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempIndex
 
 
 domain = [u("A volume that is a signed distance field used for collision calculations.  The turbulence is damped near the collision object to prevent particles from passing through."),
@@ -41,8 +42,8 @@ def test_add_text():
     with ix.reader() as r:
         exp = classify.Expander(r, "content")
         exp.add_text(text)
-        assert ([t[0] for t in exp.expanded_terms(3)]
-                == ["particles", "velocity", "field"])
+        assert_equal([t[0] for t in exp.expanded_terms(3)],
+                     ["particles", "velocity", "field"])
 
 
 def test_keyterms():
@@ -50,15 +51,16 @@ def test_keyterms():
     with ix.searcher() as s:
         docnum = s.document_number(path="/a")
         keys = list(s.key_terms([docnum], "content", numterms=3))
-        assert ([t[0] for t in keys]
-                == [u("collision"), u("calculations"), u("damped")])
+        assert_equal([t[0] for t in keys],
+                     [u("collision"), u("calculations"), u("damped")])
 
 
 def test_keyterms_from_text():
     ix = create_index()
     with ix.searcher() as s:
         keys = list(s.key_terms_from_text("content", text))
-        assert [t[0] for t in keys] == ["particles", "velocity", "field"]
+        assert_equal([t[0] for t in keys],
+                     ["particles", "velocity", "field"])
 
 
 def test_more_like_this():
@@ -78,7 +80,7 @@ def test_more_like_this():
         with ix.searcher() as s:
             docnum = s.document_number(id=u("1"))
             r = s.more_like(docnum, "text", **kwargs)
-            assert [hit["id"] for hit in r] == ["6", "2", "3"]
+            assert_equal([hit["id"] for hit in r], ["6", "2", "3"])
 
     schema = fields.Schema(id=fields.ID(stored=True),
                            text=fields.TEXT(stored=True))
@@ -97,36 +99,21 @@ def test_more_like_this():
 def test_more_like():
     schema = fields.Schema(id=fields.ID(stored=True),
                            text=fields.TEXT(stored=True))
-    with TempIndex(schema, "morelike") as ix:
-        with ix.writer() as w:
-            w.add_document(id=u("1"), text=u("alfa bravo charlie"))
-            w.add_document(id=u("2"), text=u("bravo charlie delta"))
-            w.add_document(id=u("3"), text=u("echo"))
-            w.add_document(id=u("4"), text=u("delta echo foxtrot"))
-            w.add_document(id=u("5"), text=u("echo echo echo"))
-            w.add_document(id=u("6"), text=u("foxtrot golf hotel"))
-            w.add_document(id=u("7"), text=u("golf hotel india"))
+    ix = RamStorage().create_index(schema)
+    w = ix.writer()
+    w.add_document(id=u("1"), text=u("alfa bravo charlie"))
+    w.add_document(id=u("2"), text=u("bravo charlie delta"))
+    w.add_document(id=u("3"), text=u("echo"))
+    w.add_document(id=u("4"), text=u("delta echo foxtrot"))
+    w.add_document(id=u("5"), text=u("echo echo echo"))
+    w.add_document(id=u("6"), text=u("foxtrot golf hotel"))
+    w.add_document(id=u("7"), text=u("golf hotel india"))
+    w.commit()
 
-        with ix.searcher() as s:
-            docnum = s.document_number(id="3")
-            r = s.more_like(docnum, "text")
-            assert [hit["id"] for hit in r] == ["5", "4"]
-
-
-def test_empty_more_like():
-    schema = fields.Schema(text=fields.TEXT)
-    with TempIndex(schema, "emptymore") as ix:
-        with ix.searcher() as s:
-            assert s.doc_count() == 0
-            q = query.Term("a", u("b"))
-            r = s.search(q)
-            assert r.scored_length() == 0
-            assert r.key_terms("text") == []
-
-            ex = classify.Expander(s.reader(), "text")
-            assert ex.expanded_terms(1) == []
-
-
+    with ix.searcher() as s:
+        docnum = s.document_number(id="3")
+        r = s.more_like(docnum, "text")
+        assert_equal([hit["id"] for hit in r], ["5", "4"])
 
 
 

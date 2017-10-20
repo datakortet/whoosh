@@ -70,8 +70,8 @@ class WrappingQuery(qcore.Query):
     def estimate_min_size(self, ixreader):
         return self.child.estimate_min_size(ixreader)
 
-    def matcher(self, searcher, context=None):
-        return self.child.matcher(searcher, context)
+    def matcher(self, searcher, weighting=None):
+        return self.child.matcher(searcher, weighting=weighting)
 
 
 class Not(qcore.Query):
@@ -140,11 +140,12 @@ class Not(qcore.Query):
     def estimate_min_size(self, ixreader):
         return 1 if ixreader.doc_count() else 0
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         # Usually only called if Not is the root query. Otherwise, queries such
         # as And and Or do special handling of Not subqueries.
         reader = searcher.reader()
-        child = self.query.matcher(searcher, searcher.boolean_context())
+        # Don't bother passing the weighting down, we don't use score anyway
+        child = self.query.matcher(searcher)
         return matching.InverseMatcher(child, reader.doc_count_all(),
                                        missing=reader.is_deleted)
 
@@ -170,12 +171,9 @@ class ConstantScoreQuery(WrappingQuery):
     def _rewrap(self, child):
         return self.__class__(child, self.score)
 
-    def matcher(self, searcher, context=None):
-        from whoosh.searching import SearchContext
-
-        context = context or SearchContext()
-        m = self.child.matcher(searcher, context)
-        if context.needs_current or isinstance(m, matching.NullMatcherClass):
+    def matcher(self, searcher, weighting=None):
+        m = self.child.matcher(searcher)
+        if isinstance(m, matching.NullMatcherClass):
             return m
         else:
             ids = array("I", m.all_ids())
@@ -192,7 +190,8 @@ class WeightingQuery(WrappingQuery):
         WrappingQuery.__init__(self, child)
         self.weighting = weighting
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         # Replace the passed-in weighting with the one configured on this query
-        context.set(weighting=self.weighting)
-        return self.child.matcher(searcher, context)
+        return self.child.matcher(searcher, self.weighting)
+
+

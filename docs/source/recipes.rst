@@ -20,7 +20,7 @@ Eliminate words shorter/longer than N
 
 Use a :class:`~whoosh.analysis.StopFilter` and the ``minsize`` and ``maxsize``
 keyword arguments. If you just want to filter based on size and not common
-words, set the ``stoplist`` to ``None``::
+words, set the ``stoplist`` to None::
 
     sf = analysis.StopFilter(stoplist=None, minsize=2, maxsize=40)
 
@@ -146,7 +146,7 @@ As an alternative, you might display the *estimated* total hits::
         low = results.estimated_min_length()
         high = results.estimated_length()
 
-        print("Scored", found, "of between", low, "and", high, "documents")
+        print("Scored", found, "of between", low, "and", "high", "documents")
 
 
 Which terms matched in each hit?

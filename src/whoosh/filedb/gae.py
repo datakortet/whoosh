@@ -8,23 +8,22 @@ Use at your own risk, but please report any problems to me so I can fix them.
 
 To create a new index::
 
-    from whoosh.filedb.gae import DatastoreStorage
-
-    ix = DatastoreStorage().create_index(schema)
+    from whoosh.filedb.gae import DataStoreStorage
+    
+    ix = DataStoreStorage().create_index(schema)
 
 To open an existing index::
 
-    ix = DatastoreStorage().open_index()
+    ix = DataStoreStorage().open_index()
 """
 
-import time
-
-from google.appengine.api import memcache  # @UnresolvedImport
-from google.appengine.ext import db  # @UnresolvedImport
+from google.appengine.api import memcache  #@UnresolvedImport
+from google.appengine.ext import db  #@UnresolvedImport
 
 from whoosh.compat import BytesIO
-from whoosh.index import TOC, FileIndex, _DEF_INDEX_NAME
-from whoosh.filedb.filestore import ReadOnlyError, Storage
+from whoosh.store import Storage
+from whoosh.filedb.fileindex import TOC, FileIndex, _DEF_INDEX_NAME
+from whoosh.filedb.filestore import ReadOnlyError
 from whoosh.filedb.structfile import StructFile
 
 
@@ -34,7 +33,6 @@ class DatastoreFile(db.Model):
     """
 
     value = db.BlobProperty()
-    mtime = db.IntegerProperty(default=0)
 
     def __init__(self, *args, **kwargs):
         super(DatastoreFile, self).__init__(*args, **kwargs)
@@ -55,7 +53,6 @@ class DatastoreFile(db.Model):
         oldvalue = self.value
         self.value = self.getvalue()
         if oldvalue != self.value:
-            self.mtime = int(time.time())
             self.put()
             memcache.set(self.key().id_or_name(), self.value,
                          namespace="DatastoreFile")
@@ -128,10 +125,7 @@ class DatastoreStorage(Storage):
         return sum(self.file_length(f) for f in self.list())
 
     def file_exists(self, name):
-        return DatastoreFile.get_by_key_name(name) is not None
-
-    def file_modified(self, name):
-        return DatastoreFile.get_by_key_name(name).mtime
+        return DatastoreFile.get_by_key_name(name) != None
 
     def file_length(self, name):
         return len(DatastoreFile.get_by_key_name(name).value)
@@ -144,7 +138,6 @@ class DatastoreStorage(Storage):
         file = DatastoreFile.get_by_key_name(name)
         newfile = DatastoreFile(key_name=newname)
         newfile.value = file.value
-        newfile.mtime = file.mtime
         newfile.put()
         file.delete()
 
@@ -158,7 +151,3 @@ class DatastoreStorage(Storage):
 
     def lock(self, name):
         return MemcacheLock(name)
-
-    def temp_storage(self, name=None):
-        tempstore = DatastoreStorage()
-        return tempstore.create()

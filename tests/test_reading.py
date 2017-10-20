@@ -1,11 +1,14 @@
 from __future__ import with_statement
 import random, threading, time
 
+from nose.tools import assert_equal  # @UnresolvedImport
+
 from whoosh import analysis, fields, formats, reading
-from whoosh.compat import b, u, xrange
-from whoosh.reading import SegmentReader
+from whoosh.compat import u, xrange
+from whoosh.filedb.filereading import SegmentReader
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempIndex
+from whoosh.ramindex import RamIndex
+from whoosh.support.testing import TempIndex
 
 
 def _create_index():
@@ -60,12 +63,12 @@ def _fstats(r):
 
 
 def test_readers():
-    target = [("f1", b('A'), 4, 6), ("f1", b('B'), 2, 2), ("f1", b('C'), 2, 2),
-              ("f1", b('D'), 1, 1), ("f1", b('E'), 2, 2), ("f1", b('F'), 1, 1),
-              ("f2", b('1'), 3, 3), ("f2", b('2'), 3, 3), ("f2", b('3'), 2, 2),
-              ("f2", b('4'), 2, 2), ("f2", b('5'), 2, 2), ("f2", b('6'), 2, 2),
-              ("f3", b('Q'), 2, 2), ("f3", b('R'), 2, 2), ("f3", b('S'), 2, 2),
-              ("f3", b('X'), 3, 3), ("f3", b('Y'), 3, 3), ("f3", b('Z'), 2, 2)]
+    target = [("f1", u('A'), 4, 6), ("f1", u('B'), 2, 2), ("f1", u('C'), 2, 2),
+              ("f1", u('D'), 1, 1), ("f1", u('E'), 2, 2), ("f1", u('F'), 1, 1),
+              ("f2", u('1'), 3, 3), ("f2", u('2'), 3, 3), ("f2", u('3'), 2, 2),
+              ("f2", u('4'), 2, 2), ("f2", u('5'), 2, 2), ("f2", u('6'), 2, 2),
+              ("f3", u('Q'), 2, 2), ("f3", u('R'), 2, 2), ("f3", u('S'), 2, 2),
+              ("f3", u('X'), 3, 3), ("f3", u('Y'), 3, 3), ("f3", u('Z'), 2, 2)]
     target = sorted(target)
 
     stored = [{"f1": "A B C"}, {"f1": "D E F"}, {"f1": "A E C"},
@@ -73,71 +76,57 @@ def test_readers():
 
     def t(ix):
         r = ix.reader()
-        assert list(r.all_stored_fields()) == stored
-        assert sorted(_stats(r)) == target
+        assert_equal(list(r.all_stored_fields()), stored)
+        assert_equal(sorted(_stats(r)), target)
 
     ix = _one_segment_index()
-    assert len(ix._segments()) == 1
+    assert_equal(len(ix._segments()), 1)
     t(ix)
 
     ix = _multi_segment_index()
-    assert len(ix._segments()) == 3
+    assert_equal(len(ix._segments()), 3)
     t(ix)
 
 
 def test_term_inspection():
     schema = fields.Schema(title=fields.TEXT(stored=True),
                            content=fields.TEXT)
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(
-                title=u("My document"),
-                content=u("AA AA BB BB CC AA AA AA BB BB CC DD EE EE")
-            )
-            w.add_document(
-                title=u("My other document"),
-                content=u("AA AB BB CC EE EE AX AX DD")
-            )
+    st = RamStorage()
+    ix = st.create_index(schema)
+    writer = ix.writer()
+    writer.add_document(title=u("My document"),
+                        content=u("AA AA BB BB CC AA AA AA BB BB CC DD EE EE"))
+    writer.add_document(title=u("My other document"),
+                        content=u("AA AB BB CC EE EE AX AX DD"))
+    writer.commit()
 
-        with ix.reader() as r:
-            cterms = " ".join(r.field_terms("content"))
-            assert cterms == "aa ab ax bb cc dd ee"
-
-            a_exp = list(r.expand_prefix("content", "a"))
-            assert a_exp == [b('aa'), b('ab'), b('ax')]
-
-            assert set(r.all_terms()) == set([
-                ('content', b('aa')), ('content', b('ab')),
-                ('content', b('ax')), ('content', b('bb')),
-                ('content', b('cc')), ('content', b('dd')),
-                ('content', b('ee')), ('title', b('document')),
-                ('title', b('my')), ('title', b('other'))
-            ])
-
-            # (text, doc_freq, index_freq)
-            cstats = _fstats(r.iter_field("content"))
-            assert cstats == [
-                (b('aa'), 2, 6), (b('ab'), 1, 1), (b('ax'), 1, 2),
-                (b('bb'), 2, 5), (b('cc'), 2, 3), (b('dd'), 2, 2),
-                (b('ee'), 2, 4)
-            ]
-
-            prestats = _fstats(r.iter_field("content", prefix="c"))
-            assert prestats == [
-                (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
-            ]
-
-            assert list(r.most_frequent_terms("content")) == [
-                (6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
-                (2, b('dd'))
-            ]
-            assert list(r.most_frequent_terms("content", prefix="a")) == [
-                (6, b('aa')), (2, b('ax')), (1, b('ab'))
-            ]
-            assert list(r.most_distinctive_terms("content", 3)) == [
-                (1.3862943611198906, b('ax')), (0.6931471805599453, b('ab')),
-                (0.0, b('ee'))
-            ]
+    reader = ix.reader()
+    assert_equal(list(reader.lexicon("content")),
+                 [u('aa'), u('ab'), u('ax'), u('bb'), u('cc'), u('dd'),
+                  u('ee')])
+    assert_equal(list(reader.expand_prefix("content", "a")),
+                 [u('aa'), u('ab'), u('ax')])
+    assert_equal(set(reader.all_terms()),
+                 set([('content', u('aa')), ('content', u('ab')),
+                      ('content', u('ax')), ('content', u('bb')),
+                      ('content', u('cc')), ('content', u('dd')),
+                      ('content', u('ee')), ('title', u('document')),
+                      ('title', u('my')), ('title', u('other'))]))
+    # (text, doc_freq, index_freq)
+    assert_equal(_fstats(reader.iter_field("content")),
+                 [(u('aa'), 2, 6), (u('ab'), 1, 1), (u('ax'), 1, 2),
+                  (u('bb'), 2, 5), (u('cc'), 2, 3), (u('dd'), 2, 2),
+                  (u('ee'), 2, 4)])
+    assert_equal(_fstats(reader.iter_field("content", prefix="c")),
+                 [(u('cc'), 2, 3), (u('dd'), 2, 2), (u('ee'), 2, 4)])
+    assert_equal(list(reader.most_frequent_terms("content")),
+                 [(6, u('aa')), (5, u('bb')), (4, u('ee')), (3, u('cc')),
+                  (2, u('dd'))])
+    assert_equal(list(reader.most_frequent_terms("content", prefix="a")),
+                 [(6, u('aa')), (2, u('ax')), (1, u('ab'))])
+    assert_equal(list(reader.most_distinctive_terms("content", 3)),
+                 [(1.3862943611198906, u('ax')), (0.6931471805599453, u('ab')),
+                  (0.0, u('ee'))])
 
 
 def test_vector_postings():
@@ -154,9 +143,9 @@ def test_vector_postings():
     r = ix.reader()
 
     terms = list(r.vector_as("weight", 0, "content"))
-    assert terms == [(u('brown'), 1.0), (u('dogs'), 1.0), (u('fox'), 1.0),
-                     (u('jumped'), 1.0), (u('lazy'), 1.0),
-                     (u('over'), 1.0), (u('quick'), 1.0)]
+    assert_equal(terms, [(u('brown'), 1.0), (u('dogs'), 1.0), (u('fox'), 1.0),
+                         (u('jumped'), 1.0), (u('lazy'), 1.0),
+                         (u('over'), 1.0), (u('quick'), 1.0)])
 
 
 def test_stored_fields():
@@ -172,23 +161,43 @@ def test_stored_fields():
     writer.commit()
 
     with ix.searcher() as sr:
-        assert sr.stored_fields(0) == {"a": u("1"), "b": "a", "d": u("Alfa")}
-        assert sr.stored_fields(2) == {"a": u("3"), "b": "c", "d": u("Charlie")}
+        assert_equal(sr.stored_fields(0),
+                     {"a": u("1"), "b": "a", "d": u("Alfa")})
+        assert_equal(sr.stored_fields(2),
+                     {"a": u("3"), "b": "c", "d": u("Charlie")})
 
-        assert sr.document(a=u("1")) == {"a": u("1"), "b": "a", "d": u("Alfa")}
-        assert sr.document(a=u("2")) == {"a": u("2"), "b": "b", "d": u("Bravo")}
+        assert_equal(sr.document(a=u("1")),
+                     {"a": u("1"), "b": "a", "d": u("Alfa")})
+        assert_equal(sr.document(a=u("2")),
+                     {"a": u("2"), "b": "b", "d": u("Bravo")})
 
 
 def test_stored_fields2():
     schema = fields.Schema(content=fields.TEXT(stored=True),
                            title=fields.TEXT(stored=True),
                            summary=fields.STORED,
-                           path=fields.ID(stored=True))
+                           path=fields.ID(stored=True),
+                           helpid=fields.KEYWORD,
+                           parent=fields.KEYWORD,
+                           context=fields.KEYWORD(stored=True),
+                           type=fields.KEYWORD(stored=True),
+                           status=fields.KEYWORD(stored=True),
+                           superclass=fields.KEYWORD(stored=True),
+                           exampleFor=fields.KEYWORD(stored=True),
+                           chapter=fields.KEYWORD(stored=True),
+                           replaces=fields.KEYWORD,
+                           time=fields.STORED,
+                           methods=fields.STORED,
+                           exampleFile=fields.STORED,
+                           )
 
-    storedkeys = ["content", "path", "summary", "title"]
-    assert storedkeys == schema.stored_names()
+    storedkeys = ["chapter", "content", "context", "exampleFile",
+                  "exampleFor", "methods", "path", "status", "summary",
+                  "superclass", "time", "title", "type"]
+    assert_equal(storedkeys, schema.stored_names())
 
-    ix = RamStorage().create_index(schema)
+    st = RamStorage()
+    ix = st.create_index(schema)
 
     writer = ix.writer()
     writer.add_document(content=u("Content of this document."),
@@ -199,7 +208,9 @@ def test_stored_fields2():
     writer.add_document(content=u("Third document."), title=u("Title 3"),
                         summary=u("Summary treo"), path=u("/san"))
     writer.commit()
+    ix.close()
 
+    ix = st.open_index()
     with ix.searcher() as s:
         doc = s.document(path="/main")
         assert doc is not None
@@ -208,30 +219,6 @@ def test_stored_fields2():
                     "This is the summary", "This is the title"])
 
     ix.close()
-
-
-def test_all_stored_fields():
-    # all_stored_fields() should yield all stored fields, even for deleted
-    # documents
-
-    schema = fields.Schema(a=fields.ID(stored=True), b=fields.STORED)
-    ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        w.add_document(a=u("alfa"), b=u("bravo"))
-        w.add_document(a=u("apple"), b=u("bear"))
-        w.add_document(a=u("alpaca"), b=u("beagle"))
-        w.add_document(a=u("aim"), b=u("box"))
-
-    w = ix.writer()
-    w.delete_by_term("a", "apple")
-    w.delete_by_term("a", "aim")
-    w.commit(merge=False)
-
-    with ix.searcher() as s:
-        assert s.doc_count_all() == 4
-        assert s.doc_count() == 2
-        sfs = list((sf["a"], sf["b"]) for sf in s.all_stored_fields())
-        assert sfs == [("alfa", "bravo"), ("alpaca", "beagle")]
 
 
 def test_first_id():
@@ -246,7 +233,7 @@ def test_first_id():
 
     r = ix.reader()
     docid = r.first_id("path", u("/b"))
-    assert r.stored_fields(docid) == {"path": "/b"}
+    assert_equal(r.stored_fields(docid), {"path": "/b"})
 
     ix = RamStorage().create_index(schema)
     w = ix.writer()
@@ -268,9 +255,9 @@ def test_first_id():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert r.__class__ == reading.MultiReader
+    assert_equal(r.__class__, reading.MultiReader)
     docid = r.first_id("path", u("/e"))
-    assert r.stored_fields(docid) == {"path": "/e"}
+    assert_equal(r.stored_fields(docid), {"path": "/e"})
 
 
 class RecoverReader(threading.Thread):
@@ -279,7 +266,7 @@ class RecoverReader(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(50):
+        for _ in xrange(200):
             r = self.ix.reader()
             r.close()
 
@@ -293,11 +280,11 @@ class RecoverWriter(threading.Thread):
         self.ix = ix
 
     def run(self):
-        for _ in xrange(10):
+        for _ in xrange(20):
             w = self.ix.writer()
             w.add_document(text=random.sample(self.domain, 4))
             w.commit()
-            time.sleep(0.01)
+            time.sleep(0.05)
 
 
 def test_delete_recovery():
@@ -322,7 +309,9 @@ def test_nonexclusive_read():
         def fn():
             for _ in xrange(5):
                 r = ix.reader()
-                assert list(r.field_terms("text")) == ["document", "five", "four", "one", "test", "three", "two"]
+                assert_equal(list(r.lexicon("text")),
+                             ["document", "five", "four", "one", "test",
+                              "three", "two"])
                 r.close()
 
         ths = [threading.Thread(target=fn) for _ in xrange(5)]
@@ -335,13 +324,14 @@ def test_nonexclusive_read():
 def test_doc_count():
     schema = fields.Schema(id=fields.NUMERIC)
     ix = RamStorage().create_index(schema)
-    with ix.writer() as w:
-        for i in xrange(10):
-            w.add_document(id=i)
+    w = ix.writer()
+    for i in xrange(10):
+        w.add_document(id=i)
+    w.commit()
 
     r = ix.reader()
-    assert r.doc_count() == 10
-    assert r.doc_count_all() == 10
+    assert_equal(r.doc_count(), 10)
+    assert_equal(r.doc_count_all(), 10)
 
     w = ix.writer()
     w.delete_document(2)
@@ -351,8 +341,8 @@ def test_doc_count():
     w.commit()
 
     r = ix.reader()
-    assert r.doc_count() == 6
-    assert r.doc_count_all() == 10
+    assert_equal(r.doc_count(), 6)
+    assert_equal(r.doc_count_all(), 10)
 
     w = ix.writer()
     for i in xrange(10, 15):
@@ -360,8 +350,8 @@ def test_doc_count():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert r.doc_count() == 11
-    assert r.doc_count_all() == 15
+    assert_equal(r.doc_count(), 11)
+    assert_equal(r.doc_count_all(), 15)
 
     w = ix.writer()
     w.delete_document(10)
@@ -370,131 +360,19 @@ def test_doc_count():
     w.commit(merge=False)
 
     r = ix.reader()
-    assert r.doc_count() == 8
-    assert r.doc_count_all() == 15
+    assert_equal(r.doc_count(), 8)
+    assert_equal(r.doc_count_all(), 15)
 
     ix.optimize()
     r = ix.reader()
-    assert r.doc_count() == 8
-    assert r.doc_count_all() == 8
+    assert_equal(r.doc_count(), 8)
+    assert_equal(r.doc_count_all(), 8)
 
 
 def test_reader_subclasses():
-    from whoosh.util.testing import check_abstract_methods
+    from whoosh.support.testing import check_abstract_methods
 
     check_abstract_methods(reading.IndexReader, SegmentReader)
     check_abstract_methods(reading.IndexReader, reading.MultiReader)
     check_abstract_methods(reading.IndexReader, reading.EmptyReader)
-
-
-def test_cursor():
-    schema = fields.Schema(text=fields.TEXT)
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(text=u"papa quebec romeo sierra tango")
-            w.add_document(text=u"foxtrot golf hotel india juliet")
-            w.add_document(text=u"alfa bravo charlie delta echo")
-            w.add_document(text=u"uniform victor whiskey x-ray")
-            w.add_document(text=u"kilo lima mike november oskar")
-            w.add_document(text=u"charlie alfa alfa bravo bravo bravo")
-
-        with ix.reader() as r:
-            cur = r.cursor("text")
-            assert cur.text() == "alfa"
-            assert cur.next() == "bravo"
-            assert cur.text() == "bravo"
-
-            assert cur.find(b"inc") == "india"
-            assert cur.text() == "india"
-
-            cur.first() == "alfa"
-            assert cur.text() == "alfa"
-
-            assert cur.find(b"zulu") is None
-            assert cur.text() is None
-            assert not cur.is_valid()
-
-            assert cur.find(b"a") == "alfa"
-            assert cur.term_info().weight() == 3
-            assert cur.next() == "bravo"
-            assert cur.term_info().weight() == 4
-            assert cur.next() == "charlie"
-            assert cur.term_info().weight() == 2
-
-
-def _check_inspection_results(ix):
-    AE = u'aé'.encode('utf-8')
-    AU = u'aú'.encode('utf-8')
-
-    with ix.reader() as r:
-        cterms = " ".join(r.field_terms("content"))
-        assert cterms == u"aa aé aú bb cc dd ee"
-
-        a_exp = list(r.expand_prefix("content", "a"))
-        assert a_exp == [b('aa'), AE, AU]
-
-        tset = set(r.all_terms())
-        assert tset == set([
-            ('content', b('aa')), ('content', AE),
-            ('content', AU), ('content', b('bb')),
-            ('content', b('cc')), ('content', b('dd')),
-            ('content', b('ee')), ('title', b('document')),
-            ('title', b('my')), ('title', b('other'))
-        ])
-
-        # (text, doc_freq, index_freq)
-        assert _fstats(r.iter_field("content")) == [
-            (b('aa'), 2, 6), (AE, 1, 1), (AU, 1, 2), (b('bb'), 2, 5),
-            (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
-        ]
-        assert _fstats(r.iter_field("content", prefix="c")) == [
-            (b('cc'), 2, 3), (b('dd'), 2, 2), (b('ee'), 2, 4)
-        ]
-
-        assert list(r.most_frequent_terms("content")) == [
-            (6, b('aa')), (5, b('bb')), (4, b('ee')), (3, b('cc')),
-            (2, b('dd'))
-        ]
-        assert list(r.most_frequent_terms("content", prefix="a")) == [
-            (6, b('aa')), (2, AU), (1, AE)
-        ]
-        assert list(r.most_distinctive_terms("content", 3)) == [
-            (1.3862943611198906, AU), (0.6931471805599453, AE), (0.0, b('ee'))
-        ]
-
-
-def test_term_inspection_segment_reader():
-    schema = fields.Schema(title=fields.TEXT(stored=True),
-                           content=fields.TEXT)
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(
-                title=u"My document",
-                content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE"
-            )
-            w.add_document(
-                title=u"My other document",
-                content=u"AA AÉ BB CC EE EE Aú AÚ DD"
-            )
-
-        _check_inspection_results(ix)
-
-
-def test_term_inspection_multi_reader():
-    schema = fields.Schema(title=fields.TEXT(stored=True),
-                           content=fields.TEXT)
-    with TempIndex(schema) as ix:
-        with ix.writer() as w:
-            w.add_document(
-                title=u"My document",
-                content=u"AA AA BB BB CC AA AA AA BB BB CC DD EE EE"
-            )
-
-        with ix.writer() as w:
-            w.add_document(
-                title=u"My other document",
-                content=u"AA AÉ BB CC EE EE Aú AÚ DD"
-            )
-            w.merge = False
-
-        _check_inspection_results(ix)
+    check_abstract_methods(reading.IndexReader, RamIndex)

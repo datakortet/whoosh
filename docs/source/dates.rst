@@ -9,8 +9,7 @@ Whoosh lets you index and search dates/times using the
 :class:`whoosh.fields.DATETIME` field type. Instead of passing text for the
 field in ``add_document()``, you use a Python ``datetime.datetime`` object::
 
-    from datetime import datetime, timedelta
-    from whoosh import fields, index
+    from datetime import datetime, timedelta from whoosh import fields, index
 
     schema = fields.Schema(title=fields.TEXT, content=fields.TEXT,
                            date=fields.DATETIME)
@@ -68,19 +67,19 @@ With the ``DateParserPlugin``, users can use date queries such as::
     now to +2h
     -1y6mo to +2 yrs 23d
 
-Normally, as with other types of queries containing spaces, the users need
+Normally, as with other types of queries containing spaces, the users needs
 to quote date queries containing spaces using single quotes::
 
     render date:'last tuesday' command
     date:['last tuesday' to 'next friday']
 
-If you use the ``free`` argument to the ``DateParserPlugin``, the plugin will
-try to parse dates from unquoted text following a date field prefix::
+If you use the ``free`` argument to the DateParserPlugin, the plugin will
+try to parse dates from unquoted text following a date field prefix
 
     qp.add_plugin(DateParserPlugin(free=True))
 
 This allows the user to type a date query with spaces and special characters
-following the name of date field and a colon. The date query can be mixed
+following the name of date filed and a colon. The date query can be mixed
 with other types of queries without quotes::
 
     date:last tuesday
@@ -112,10 +111,10 @@ into the ``DATETIME`` field::
 About time zones and basetime
 =============================
 
-The best way to deal with time zones is to always index ``datetime``\ s in native
-UTC form. Any ``tzinfo`` attribute on the ``datetime`` object is *ignored*
+The best way to deal with time zones is to always index ``datetime``s in naive
+UTC form. Any ``tzinfo`` attribute on the ``datetime`` object is _ignored_
 by the indexer. If you are working with local datetimes, you should convert them
-to native UTC datetimes before indexing.
+to naive UTC datetimes before indexing.
 
 
 Date parser notes
@@ -188,7 +187,7 @@ Limitations
   dates before year 1 on the proleptic Gregorian calendar. The ``DATETIME``
   field supports practically unlimited dates, so if the ``datetime`` object
   is every improved it could support it. An alternative possibility might
-  be to add support for ``mxDateTime`` objects someday.
+  be to add support for mxDateTime objects someday.
 
 * The ``DateParserPlugin`` currently only has support for English dates.
   The architecture supports creation of parsers for other languages, and I

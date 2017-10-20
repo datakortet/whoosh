@@ -1,10 +1,12 @@
 from __future__ import with_statement
 import random
 
+from nose.tools import assert_equal, assert_almost_equal  # @UnresolvedImport
+
 from whoosh import fields, matching, scoring
 from whoosh.compat import b, u, xrange
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.numeric import length_to_byte, byte_to_length
+from whoosh.util import length_to_byte, byte_to_length
 
 
 def _discreet(length):
@@ -21,7 +23,7 @@ def test_max_field_length():
         w.commit()
 
         with ix.reader() as r:
-            assert r.max_field_length("t") == _discreet(i)
+            assert_equal(r.max_field_length("t"), _discreet(i))
 
 
 def test_minmax_field_length():
@@ -39,8 +41,8 @@ def test_minmax_field_length():
         w.commit()
 
         with ix.reader() as r:
-            assert r.min_field_length("t") == _discreet(least)
-            assert r.max_field_length("t") == _discreet(most)
+            assert_equal(r.min_field_length("t"), _discreet(least))
+            assert_equal(r.max_field_length("t"), _discreet(most))
 
 
 def test_term_stats():
@@ -57,17 +59,17 @@ def test_term_stats():
 
     with ix.reader() as r:
         ti = r.term_info("t", u("alfa"))
-        assert ti.weight() == 4.0
-        assert ti.doc_frequency() == 2
-        assert ti.min_length() == 4
-        assert ti.max_length() == 5
-        assert ti.max_weight() == 3.0
+        assert_equal(ti.weight(), 4.0)
+        assert_equal(ti.doc_frequency(), 2)
+        assert_equal(ti.min_length(), 4)
+        assert_equal(ti.max_length(), 5)
+        assert_equal(ti.max_weight(), 3.0)
 
-        assert r.term_info("t", u("echo")).min_length() == 3
+        assert_equal(r.term_info("t", u("echo")).min_length(), 3)
 
-        assert r.doc_field_length(3, "t") == 3
-        assert r.min_field_length("t") == 3
-        assert r.max_field_length("t") == 6
+        assert_equal(r.doc_field_length(3, "t"), 3)
+        assert_equal(r.min_field_length("t"), 3)
+        assert_equal(r.max_field_length("t"), 6)
 
     w = ix.writer()
     w.add_document(t=u("alfa"))
@@ -80,16 +82,16 @@ def test_term_stats():
 
     with ix.reader() as r:
         ti = r.term_info("t", u("alfa"))
-        assert ti.weight() == 6.0
-        assert ti.doc_frequency() == 4
-        assert ti.min_length() == 1
-        assert ti.max_length() == 7
-        assert ti.max_weight() == 3.0
+        assert_equal(ti.weight(), 6.0)
+        assert_equal(ti.doc_frequency(), 4)
+        assert_equal(ti.min_length(), 1)
+        assert_equal(ti.max_length(), 7)
+        assert_equal(ti.max_weight(), 3.0)
 
-        assert r.term_info("t", u("echo")).min_length() == 3
+        assert_equal(r.term_info("t", u("echo")).min_length(), 3)
 
-        assert r.min_field_length("t") == 1
-        assert r.max_field_length("t") == 7
+        assert_equal(r.min_field_length("t"), 1)
+        assert_equal(r.max_field_length("t"), 7)
 
 
 def test_min_max_id():
@@ -105,16 +107,16 @@ def test_min_max_id():
 
     with ix.reader() as r:
         ti = r.term_info("t", u("delta"))
-        assert ti.min_id() == 1
-        assert ti.max_id() == 3
+        assert_equal(ti.min_id(), 1)
+        assert_equal(ti.max_id(), 3)
 
         ti = r.term_info("t", u("alfa"))
-        assert ti.min_id() == 0
-        assert ti.max_id() == 0
+        assert_equal(ti.min_id(), 0)
+        assert_equal(ti.max_id(), 0)
 
         ti = r.term_info("t", u("foxtrot"))
-        assert ti.min_id() == 3
-        assert ti.max_id() == 4
+        assert_equal(ti.min_id(), 3)
+        assert_equal(ti.max_id(), 4)
 
     w = ix.writer()
     w.add_document(id=5, t=u("foxtrot golf hotel"))
@@ -125,16 +127,16 @@ def test_min_max_id():
 
     with ix.reader() as r:
         ti = r.term_info("t", u("delta"))
-        assert ti.min_id() == 1
-        assert ti.max_id() == 3
+        assert_equal(ti.min_id(), 1)
+        assert_equal(ti.max_id(), 3)
 
         ti = r.term_info("t", u("alfa"))
-        assert ti.min_id() == 0
-        assert ti.max_id() == 8
+        assert_equal(ti.min_id(), 0)
+        assert_equal(ti.max_id(), 8)
 
         ti = r.term_info("t", u("foxtrot"))
-        assert ti.min_id() == 3
-        assert ti.max_id() == 5
+        assert_equal(ti.min_id(), 3)
+        assert_equal(ti.max_id(), 5)
 
 
 def test_replacements():
@@ -144,18 +146,18 @@ def test_replacements():
     um = matching.UnionMatcher(a, b)
 
     a2 = a.replace(0.5)
-    assert a2.__class__ == matching.NullMatcherClass
+    assert_equal(a2.__class__, matching.NullMatcherClass)
 
     um2 = um.replace(0.5)
-    assert um2.__class__ == matching.IntersectionMatcher
+    assert_equal(um2.__class__, matching.IntersectionMatcher)
     um2 = um.replace(0.6)
-    assert um2.__class__ == matching.NullMatcherClass
+    assert_equal(um2.__class__, matching.NullMatcherClass)
 
     wm = matching.WrappingMatcher(um, boost=2.0)
     wm = wm.replace(0.5)
-    assert wm.__class__ == matching.WrappingMatcher
-    assert wm.boost == 2.0
-    assert wm.child.__class__ == matching.IntersectionMatcher
+    assert_equal(wm.__class__, matching.WrappingMatcher)
+    assert_equal(wm.boost, 2.0)
+    assert_equal(wm.child.__class__, matching.IntersectionMatcher)
 
     ls1 = matching.ListMatcher([1, 2, 3], [0.1, 0.1, 0.1],
                                scorer=scoring.WeightScorer(0.1))
@@ -165,7 +167,7 @@ def test_replacements():
                                scorer=scoring.WeightScorer(0.3))
     mm = matching.MultiMatcher([ls1, ls2, ls3], [0, 4, 8])
     mm = mm.replace(0.25)
-    assert mm.current == 2
+    assert_equal(mm.current, 2)
 
     dm = matching.DisjunctionMaxMatcher(ls1, ls2)
     dm = dm.replace(0.15)

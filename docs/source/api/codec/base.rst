@@ -17,16 +17,23 @@ Classes
 .. autoclass:: FieldWriter
    :members:
 
-.. autoclass:: PostingsWriter
-   :members:
-
 .. autoclass:: TermsReader
    :members:
 
-.. autoclass:: PerDocumentReader
+.. autoclass:: VectorReader
+   :members:
+
+.. autoclass:: LengthsReader
+   :members:
+
+.. autoclass:: MultiLengths
+   
+.. autoclass:: StoredFieldsReader
    :members:
 
 .. autoclass:: Segment
    :members:
+
+
 
 

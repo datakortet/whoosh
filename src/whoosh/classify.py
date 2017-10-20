@@ -43,11 +43,7 @@ class ExpansionModel(object):
     def __init__(self, doc_count, field_length):
         self.N = doc_count
         self.collection_total = field_length
-
-        if self.N:
-            self.mean_length = self.collection_total / self.N
-        else:
-            self.mean_length = 0
+        self.mean_length = self.collection_total / self.N
 
     def normalizer(self, maxweight, top_total):
         raise NotImplementedError
@@ -69,7 +65,7 @@ class Bo1Model(ExpansionModel):
 class Bo2Model(ExpansionModel):
     def normalizer(self, maxweight, top_total):
         f = maxweight * self.N / self.collection_total
-        return maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2)
+        return (maxweight * log((1.0 + f) / f, 2) + log(1.0 + f, 2))
 
     def score(self, weight_in_top, weight_in_collection, top_total):
         f = weight_in_top * top_total / self.collection_total
@@ -88,7 +84,7 @@ class KLModel(ExpansionModel):
         if wit_over_tt < wic_over_ct:
             return 0
         else:
-            return wit_over_tt * log(wit_over_tt
+            return wit_over_tt * log((wit_over_tt)
                                      / (weight_in_top / self.collection_total),
                                      2)
 
@@ -104,16 +100,15 @@ class Expander(object):
         :param fieldname: The name of the field in which to search.
         :param model: (classify.ExpansionModel) The model to use for expanding
             the query terms. If you omit this parameter, the expander uses
-            :class:`Bo1Model` by default.
+            scoring.Bo1Model by default.
         """
 
         self.ixreader = ixreader
         self.fieldname = fieldname
-        doccount =  self.ixreader.doc_count_all()
-        fieldlen = self.ixreader.field_length(fieldname)
 
         if type(model) is type:
-            model = model(doccount, fieldlen)
+            model = model(self.ixreader.doc_count_all(),
+                          self.ixreader.field_length(fieldname))
         self.model = model
 
         # Maps words to their weight in the top N documents.
@@ -124,7 +119,7 @@ class Expander(object):
 
     def add(self, vector):
         """Adds forward-index information about one of the "top N" documents.
-
+        
         :param vector: A series of (text, weight) tuples, such as is
             returned by Reader.vector_as("weight", docnum, fieldname).
         """
@@ -149,19 +144,12 @@ class Expander(object):
                             % (self.fieldname, docnum))
 
     def add_text(self, string):
-        # Unfortunately since field.index() yields bytes texts, and we want
-        # unicode, we end up encoding and decoding unnecessarily.
-        #
-        # TODO: Find a way around this
-
         field = self.ixreader.schema[self.fieldname]
-        from_bytes = field.from_bytes
-        self.add((from_bytes(text), weight) for text, _, weight, _
-                 in field.index(string))
+        self.add((text, weight) for text, _, weight, _ in field.index(string))
 
     def expanded_terms(self, number, normalize=True):
         """Returns the N most important terms in the vectors added so far.
-
+        
         :param number: The number of terms to return.
         :param normalize: Whether to normalize the weights.
         :returns: A list of ("term", weight) tuples.
@@ -170,7 +158,6 @@ class Expander(object):
         model = self.model
         fieldname = self.fieldname
         ixreader = self.ixreader
-        field = ixreader.schema[fieldname]
         tlist = []
         maxweight = 0
 
@@ -179,9 +166,8 @@ class Expander(object):
             return []
 
         for word, weight in iteritems(self.topN_weight):
-            btext = field.to_bytes(word)
-            if (fieldname, btext) in ixreader:
-                cf = ixreader.frequency(fieldname, btext)
+            if (fieldname, word) in ixreader:
+                cf = ixreader.frequency(fieldname, word)
                 score = model.score(weight, cf, self.top_total)
                 if score > maxweight:
                     maxweight = score
@@ -334,13 +320,13 @@ def two_pass_variance(data):
     sum2 = 0
 
     for x in data:
-        n += 1
+        n = n + 1
         sum1 = sum1 + x
 
     mean = sum1 / n
 
     for x in data:
-        sum2 += (x - mean) * (x - mean)
+        sum2 = sum2 + (x - mean) * (x - mean)
 
     variance = sum2 / (n - 1)
     return variance
@@ -354,8 +340,8 @@ def weighted_incremental_variance(data_weight_pairs):
         temp = weight + sumweight
         Q = x - mean
         R = Q * weight / temp
-        S += sumweight * Q * R
-        mean += R
+        S = S + sumweight * Q * R
+        mean = mean + R
         sumweight = temp
     Variance = S / (sumweight - 1)  # if sample is the population, omit -1
     return Variance
@@ -375,3 +361,5 @@ def swin(data, size):
         clusters.append((left, right, j - i, v))
     clusters.sort(key=lambda x: (0 - x[2], x[3]))
     return clusters
+
+

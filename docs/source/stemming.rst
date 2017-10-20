@@ -5,7 +5,7 @@ Stemming, variations, and accent folding
 The problem
 ===========
 
-The indexed text will often contain words in different form than the one
+The indexed text will often have contain words in different form than the one
 the user searches for. For example, if the user searches for ``render``, we
 would like the search to match not only documents that contain the ``render``,
 but also ``renders``, ``rendering``, ``rendered``, etc.
@@ -27,11 +27,9 @@ from words to arrive (hopefully, most of the time) at the base word. Whoosh
 includes several stemming algorithms such as Porter and Porter2, Paice Husk,
 and Lovins.
 
-::
-
-    >>> from whoosh.lang.porter import stem
-    >>> stem("rendering")
-    'render'
+>>> from whoosh.lang.porter import stem
+>>> stem("rendering")
+'render'
 
 The stemming filter applies the stemming function to the terms it indexes, and
 to words in user queries. So in theory all variations of a root word ("render",
@@ -42,13 +40,11 @@ are reduced to the root, so stemming enhances "recall".
 The :class:`whoosh.analysis.StemFilter` lets you add a stemming filter to an
 analyzer chain.
 
-::
-
-    >>> rext = RegexTokenizer()
-    >>> stream = rext(u"fundamentally willows")
-    >>> stemmer = StemFilter()
-    >>> [token.text for token in stemmer(stream)]
-    [u"fundament", u"willow"]
+>>> rext = RegexTokenizer()
+>>> stream = rext(u"fundamentally willows")
+>>> stemmer = StemFilter()
+>>> [token.text for token in stemmer(stream)]
+[u"fundament", u"willow"]
 
 The :func:`whoosh.analysis.StemmingAnalyzer` is a pre-packaged analyzer that
 combines a tokenizer, lower-case filter, optional stop filter, and stem filter::
@@ -84,15 +80,13 @@ variations you instead index words "as is" and *at query time* expand words
 in the user query using a heuristic algorithm to generate morphological
 variations of the word.
 
-::
-
-    >>> from whoosh.lang.morph_en import variations
-    >>> variations("rendered")
-    set(['rendered', 'rendernesses', 'render', 'renderless', 'rendering',
-    'renderness', 'renderes', 'renderer', 'renderements', 'rendereless',
-    'renderenesses', 'rendere', 'renderment', 'renderest', 'renderement',
-    'rendereful', 'renderers', 'renderful', 'renderings', 'renders', 'renderly',
-    'renderely', 'rendereness', 'renderments'])
+>>> from whoosh.lang.morph_en import variations
+>>> variations("rendered")
+set(['rendered', 'rendernesses', 'render', 'renderless', 'rendering',
+'renderness', 'renderes', 'renderer', 'renderements', 'rendereless',
+'renderenesses', 'rendere', 'renderment', 'renderest', 'renderement',
+'rendereful', 'renderers', 'renderful', 'renderings', 'renders', 'renderly',
+'renderely', 'rendereness', 'renderments'])
 
 Many of the generated variations for a given word will not be valid words, but
 it's fairly fast for Whoosh to check which variations are actually in the
@@ -167,7 +161,7 @@ Whoosh includes several mechanisms for adding character folding to an analyzer.
 
 The :class:`whoosh.analysis.CharsetFilter` applies a character map to token
 text. For example, it will filter the tokens ``u'café', u'resumé', ...`` to
-``u'cafe', u'resume', ...``. This is usually the method you'll want to use
+``u'cafe', u'resume', ...``. This is the usually the method you'll want to use
 unless you need to use a charset to tokenize terms::
 
     from whoosh.analysis import CharsetFilter, StemmingAnalyzer
@@ -175,7 +169,7 @@ unless you need to use a charset to tokenize terms::
     from whoosh.support.charset import accent_map
 
     # For example, to add an accent-folding filter to a stemming analyzer:
-    my_analyzer = StemmingAnalyzer() | CharsetFilter(accent_map)
+    my_analyzer = StemmingAnalyzer | CharsetFilter(accent_map)
 
     # To use this analyzer in your schema:
     my_schema = fields.Schema(content=fields.TEXT(analyzer=my_analyzer))
@@ -197,7 +191,7 @@ required by ``CharsetTokenizer`` and ``CharsetFilter``::
     from whoosh.analysis import CharsetFilter
     from whoosh.support.charset import default_charset, charset_table_to_dict
     charmap = charset_table_to_dict(default_charset)
-    my_analyzer = StemmingAnalyzer() | CharsetFilter(charmap)
+    my_analyzer = StemmingAnalyzer | CharsetFilter(charmap)
 
 (The Sphinx charset table format is described at
 http://www.sphinxsearch.com/docs/current.html#conf-charset-table )

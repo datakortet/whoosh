@@ -1,9 +1,11 @@
 from __future__ import with_statement
 
+from nose.tools import assert_equal  # @UnresolvedImport
+
 from whoosh.compat import b
+from whoosh.support.testing import TempStorage
 from whoosh.filedb.compound import CompoundStorage
 from whoosh.filedb.filestore import RamStorage
-from whoosh.util.testing import TempStorage
 
 
 def _test_simple_compound(st):
@@ -24,21 +26,21 @@ def _test_simple_compound(st):
     f = st.create_file("f")
     CompoundStorage.assemble(f, st, ["a", "b", "c"])
 
-    f = CompoundStorage(st.open_file("f"))
+    f = CompoundStorage(st, "f")
     with f.open_file("a") as af:
         for x in alist:
-            assert x == af.read_int()
-        assert af.read() == b('')
+            assert_equal(x, af.read_int())
+        assert_equal(af.read(), b(''))
 
     with f.open_file("b") as bf:
         for x in blist:
-            assert x == bf.read_varint()
-        assert bf.read() == b('')
+            assert_equal(x, bf.read_varint())
+        assert_equal(bf.read(), b(''))
 
     with f.open_file("c") as cf:
         for x in clist:
-            assert x == cf.read_int()
-        assert cf.read() == b('')
+            assert_equal(x, cf.read_int())
+        assert_equal(cf.read(), b(''))
 
 
 def test_simple_compound_mmap():
@@ -63,3 +65,6 @@ def test_simple_compound_nomap():
 #        CompoundStorage.assemble(f, st, ["a", "b"])
 #
 #        f = CompoundStorage(st, "f")
+
+
+

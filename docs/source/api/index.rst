@@ -4,6 +4,14 @@
 
 .. automodule:: whoosh.index
 
+Globals
+=======
+
+.. data:: _index_version
+
+    The version number of the index format which this version of Whoosh
+    writes.
+
 
 Functions
 =========
@@ -16,24 +24,17 @@ Functions
 .. autofunction:: version
 
 
-Base class
-==========
+Index class
+===========
 
 .. autoclass:: Index
     :members:
 
 
-Implementation
-==============
-
-.. autoclass:: FileIndex
-
-
 Exceptions
 ==========
 
-.. autoexception:: LockError
-.. autoexception:: IndexError
+.. autoexception:: EmptyIndexError
 .. autoexception:: IndexVersionError
 .. autoexception:: OutOfDateError
-.. autoexception:: EmptyIndexError
+.. autoexception:: IndexError

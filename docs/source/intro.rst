@@ -14,7 +14,7 @@ search engine (or both!).
 * Whoosh is fast, but uses only pure Python, so it will run anywhere Python runs,
   without requiring a compiler.
 
-* By default, Whoosh uses the `Okapi BM25F <http://en.wikipedia.com/wiki/Okapi_BM25>`_ ranking
+* By default, Whoosh uses the `Okapi BM25F <http://en.wikipedia.com/wiki/BM25>`_ ranking
   function, but like most things the ranking function can be easily customized.
 
 * Whoosh creates fairly small indexes compared to many other search libraries.
@@ -32,7 +32,7 @@ Whoosh is a fast, pure Python search engine library.
 The primary design impetus of Whoosh is that it is pure Python. You should be able to
 use Whoosh anywhere you can use Python, no compiler or Java required.
 
-Like one of its ancestors, Lucene, Whoosh is not really a search engine, it's a programmer
+Like one if its ancestors, Lucene, Whoosh is not really a search engine, it's a programmer
 library for creating a search engine [1]_.
 
 Practically no important behavior of Whoosh is hard-coded. Indexing

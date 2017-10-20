@@ -105,24 +105,23 @@ class NestedParent(WrappingQuery):
     def requires(self):
         return self.child.requires()
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return matching.NullMatcher
-        m = self.child.matcher(searcher, context)
+        m = self.child.matcher(searcher, weighting=weighting)
         if not m.is_active():
             return matching.NullMatcher
 
         return self.NestedParentMatcher(bits, m, self.per_parent_limit,
-                                        searcher.doc_count_all(),
-                                        self.score_fn)
+                                        searcher.doc_count_all())
 
     def deletion_docs(self, searcher):
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return
 
-        m = self.child.matcher(searcher, searcher.boolean_context())
+        m = self.child.matcher(searcher)
         maxdoc = searcher.doc_count_all()
         while m.is_active():
             docnum = m.id()
@@ -133,12 +132,11 @@ class NestedParent(WrappingQuery):
             m.skip_to(nextparent)
 
     class NestedParentMatcher(matching.Matcher):
-        def __init__(self, comb, child, per_parent_limit, maxdoc, score_fn):
+        def __init__(self, comb, child, per_parent_limit, maxdoc):
             self.comb = comb
             self.child = child
             self.per_parent_limit = per_parent_limit
             self.maxdoc = maxdoc
-            self.score_fn = score_fn
 
             self._nextdoc = None
             if self.child.is_active():
@@ -165,17 +163,16 @@ class NestedParent(WrappingQuery):
 
             # Sum the scores of all matching documents under the parent
             count = 1
-            scores = []
+            score = 0
             while child.is_active() and child.id() < nextparent:
                 if pplimit and count > pplimit:
                     child.skip_to(nextparent)
                     break
 
-                scores.append(child.score())
+                score += child.score()
                 child.next()
                 count += 1
 
-            score = self.score_fn(scores) if scores else 0
             self._nextscore = score
 
         def id(self):
@@ -265,12 +262,12 @@ class NestedChildren(WrappingQuery):
         self.child = subq
         self.boost = boost
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         bits = searcher._filter_to_comb(self.parents)
         if not bits:
             return matching.NullMatcher
 
-        m = self.child.matcher(searcher, context)
+        m = self.child.matcher(searcher, weighting=weighting)
         if not m.is_active():
             return matching.NullMatcher
 
@@ -279,20 +276,16 @@ class NestedChildren(WrappingQuery):
                                        boost=self.boost)
 
     class NestedChildMatcher(matching.WrappingMatcher):
-        def __init__(self, parent_comb, wanted_parent_matcher, limit,
-                     is_deleted, boost=1.0):
-            self.parent_comb = parent_comb
-            self.child = wanted_parent_matcher
+        def __init__(self, comb, m, limit, is_deleted, boost=1.0):
+            self.comb = comb
+            self.child = m
             self.limit = limit
             self.is_deleted = is_deleted
             self.boost = boost
-            self._nextchild = -1
-            self._nextparent = -1
-            self._find_next_children()
+            self._reset()
 
         def __repr__(self):
-            return "%s(%r, %r)" % (self.__class__.__name__,
-                                   self.parent_comb,
+            return "%s(%r, %r)" % (self.__class__.__name__, self.comb,
                                    self.child)
 
         def reset(self):
@@ -307,17 +300,13 @@ class NestedChildren(WrappingQuery):
         def is_active(self):
             return self._nextchild < self._nextparent
 
-        def replace(self, minquality=0):
+        def replace(self, minscore):
             return self
 
         def _find_next_children(self):
-            # "comb" contains the doc IDs of all parent documents
-            comb = self.parent_comb
-            # "m" is the matcher for "wanted" parents
+            comb = self.comb
             m = self.child
-            # Last doc ID + 1
             limit = self.limit
-            # A function that returns True if a doc ID is deleted
             is_deleted = self.is_deleted
             nextchild = self._nextchild
             nextparent = self._nextparent
@@ -378,32 +367,14 @@ class NestedChildren(WrappingQuery):
                 self._find_next_children()
 
         def skip_to(self, docid):
-            comb = self.parent_comb
-            wanted = self.child
+            m = self.child
 
-            # self._nextchild is the "current" matching child ID
-            if docid <= self._nextchild:
-                return
-
-            # self._nextparent is the next parent ID (matching or not)
-            if docid < self._nextparent:
-                # Just iterate
-                while self.is_active() and self.id() < docid:
-                    self.next()
-            elif wanted.is_active():
-                # Find the parent before the target ID
-                pid = comb.before(docid)
-                # Skip the parent matcher to that ID
-                wanted.skip_to(pid)
-                # If that made the matcher inactive, then we're done
-                if not wanted.is_active():
-                    self._nextchild = self._nextparent = self.limit
-                else:
-                    # Reestablish for the next child after the next matching
-                    # parent
-                    self._find_next_children()
+            m.skip_to(docid)
+            if m.is_active():
+                self._find_next_children()
             else:
-                self._nextchild = self._nextparent = self.limit
+                # Go inactive
+                self._nextchild = self.limit
 
         def value(self):
             raise NotImplementedError(self.__class__)
@@ -413,3 +384,7 @@ class NestedChildren(WrappingQuery):
 
         def spans(self):
             return []
+
+
+
+

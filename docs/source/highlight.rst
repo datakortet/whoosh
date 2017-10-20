@@ -91,7 +91,7 @@ To turn off the character limit::
 If you instantiate a custom fragmenter, you can set the character limit on it
 directly::
 
-    sf = highlight.SentenceFragmenter(charlimit=100000)
+    sf = highlights.SentenceFragmenter(charlimit=100000)
     results.fragmenter = sf
 
 See below for information on customizing the highlights.
@@ -111,7 +111,7 @@ You can use the ``top`` keyword argument to control the number of fragments
 returned in each snippet::
 
     # Show a maximum of 5 fragments from the document
-    print hit.highlights("content", top=5)
+    print hit.highlight("content", top=5)
 
 
 Fragment size
@@ -123,10 +123,10 @@ controlling the maximum number of characters of context to add at the beginning
 and end of a fragment::
 
     # Allow larger fragments
-    results.fragmenter.maxchars = 300
+    results.formatter.maxchars = 300
 
     # Show more context before and after
-    results.fragmenter.surround = 50
+    results.formatter.surround = 50
 
 
 Fragmenter
@@ -152,10 +152,10 @@ The ``highlight`` module has the following pre-made fragmenters:
     are highlighting a short bit of text and don't need to fragment it.
 
 The different fragmenters have different options. For example, the default
-:class:`~whoosh.highlight.ContextFragmenter` lets you set the maximum
+:class:`~whoosh.highlights.ContextFragmenter` lets you set the maximum
 fragment size and the size of the context to add on either side::
 
-    my_cf = highlight.ContextFragmenter(maxchars=100, surround=30)
+    my_cf = highlights.ContextFragmenter(maxchars=100, surround=30)
 
 See the :mod:`whoosh.highlight` docs for more information.
 
@@ -245,7 +245,7 @@ The easiest way to create a custom formatter is to subclass
         def format_token(self, text, token, replace=False):
             # Use the get_text function to get the text corresponding to the
             # token
-            tokentext = highlight.get_text(text, token, replace)
+            tokentext = highlight.get_text(text, token)
 
             # Return the text as you want it to appear in the highlighted
             # string
@@ -271,13 +271,13 @@ you change the ``fragmenter``, ``scorer``, ``order``, and/or ``formatter``::
     hi = highlight.Highlighter(fragmenter=my_cf, scorer=sds)
 
 You can then use the :meth:`whoosh.highlight.Highlighter.highlight_hit` method
-to get highlights for a ``Hit`` object::
+to get highlights for a Hit object::
 
     for hit in results:
         print(hit["title"])
         print(hi.highlight_hit(hit))
 
-(When you assign to a ``Results`` object's ``fragmenter``, ``scorer``, ``order``,
+(When you assign to a Results object's ``fragmenter``, ``scorer``, ``order``,
 or ``formatter`` attributes, you're actually changing the values on the
 results object's default ``Highlighter`` object.)
 
@@ -373,36 +373,36 @@ an analyzer::
     excerpts = highlight(text, terms, analyzer, fragmenter, formatter, top=3,
                          scorer=BasicFragmentScorer, minscore=1, order=FIRST)
 
-``text``
+text
     The original text of the document.
 
-``terms``
+terms
     A sequence or set containing the query words to match, e.g. ("render",
     "shader").
 
-``analyzer``
+analyzer
     The analyzer to use to break the document text into tokens for matching
     against the query terms. This is usually the analyzer for the field the
     query terms are in.
 
-``fragmenter``
+fragmenter
     A :class:`whoosh.highlight.Fragmenter` object, see below.
 
-``formatter``
+formatter
     A :class:`whoosh.highlight.Formatter` object, see below.
 
-``top``
+top
     The number of fragments to include in the output.
 
-``scorer``
+scorer
     A :class:`whoosh.highlight.FragmentScorer` object. The only scorer currently
     included with Whoosh is :class:`~whoosh.highlight.BasicFragmentScorer`, the
     default.
 
-``minscore``
+minscore
     The minimum score a fragment must have to be considered for inclusion.
 
-``order``
+order
     An ordering function that determines the order of the "top" fragments in the
     output text.
 

@@ -26,9 +26,7 @@
 # policies, either expressed or implied, of Matt Chaput.
 
 from __future__ import division
-import copy
-import fnmatch
-import re
+import copy, fnmatch, re
 from collections import defaultdict
 
 from whoosh import matching
@@ -46,11 +44,10 @@ class Term(qcore.Query):
 
     __inittypes__ = dict(fieldname=str, text=text_type, boost=float)
 
-    def __init__(self, fieldname, text, boost=1.0, minquality=None):
+    def __init__(self, fieldname, text, boost=1.0):
         self.fieldname = fieldname
         self.text = text
         self.boost = boost
-        self.minquality = minquality
 
     def __eq__(self, other):
         return (other
@@ -67,14 +64,7 @@ class Term(qcore.Query):
         return r
 
     def __unicode__(self):
-        text = self.text
-        if isinstance(text, bytes_type):
-            try:
-                text = text.decode("ascii")
-            except UnicodeDecodeError:
-                text = repr(text)
-
-        t = u("%s:%s") % (self.fieldname, text)
+        t = u("%s:%s") % (self.fieldname, self.text)
         if self.boost != 1:
             t += u("^") + text_type(self.boost)
         return t
@@ -92,10 +82,6 @@ class Term(qcore.Query):
                     boost=boost * self.boost, startchar=self.startchar,
                     endchar=self.endchar, chars=True)
 
-    def terms(self, phrases=False):
-        if self.field():
-            yield (self.field(), self.text)
-
     def replace(self, fieldname, oldtext, newtext):
         q = copy.copy(self)
         if q.fieldname == fieldname and q.text == oldtext:
@@ -103,39 +89,20 @@ class Term(qcore.Query):
         return q
 
     def estimate_size(self, ixreader):
-        fieldname = self.fieldname
-        if fieldname not in ixreader.schema:
-            return 0
+        return ixreader.doc_frequency(self.fieldname, self.text)
 
-        field = ixreader.schema[fieldname]
-        try:
-            text = field.to_bytes(self.text)
-        except ValueError:
-            return 0
-
-        return ixreader.doc_frequency(fieldname, text)
-
-    def matcher(self, searcher, context=None):
-        fieldname = self.fieldname
+    def matcher(self, searcher, weighting=None):
         text = self.text
-        if fieldname not in searcher.schema:
+        if self.fieldname not in searcher.schema:
             return matching.NullMatcher()
-
-        field = searcher.schema[fieldname]
-        try:
-            text = field.to_bytes(text)
-        except ValueError:
-            return matching.NullMatcher()
+        # If someone created a query object with a non-text term,e.g.
+        # query.Term("printed", True), be nice and convert it to text
+        if not isinstance(text, (bytes_type, text_type)):
+            field = searcher.schema[self.fieldname]
+            text = field.to_text(text)
 
         if (self.fieldname, text) in searcher.reader():
-            if context is None:
-                w = searcher.weighting
-            else:
-                w = context.weighting
-
-            m = searcher.postings(self.fieldname, text, weighting=w)
-            if self.minquality:
-                m.set_min_quality(self.minquality)
+            m = searcher.postings(self.fieldname, text, weighting=weighting)
             if self.boost != 1.0:
                 m = matching.WrappingMatcher(m, boost=self.boost)
             return m
@@ -148,41 +115,15 @@ class MultiTerm(qcore.Query):
     same field.
     """
 
+    TOO_MANY_CLAUSES = 1024
     constantscore = False
 
-    def _btexts(self, ixreader):
-        raise NotImplementedError(self.__class__.__name__)
-
-    def expanded_terms(self, ixreader, phrases=False):
-        fieldname = self.field()
-        if fieldname:
-            for btext in self._btexts(ixreader):
-                yield (fieldname, btext)
-
-    def tokens(self, boost=1.0, exreader=None):
-        fieldname = self.field()
-        if exreader is None:
-            btexts = [self.text]
-        else:
-            btexts = self._btexts(exreader)
-
-        for btext in btexts:
-            yield Token(fieldname=fieldname, text=btext,
-                        boost=boost * self.boost, startchar=self.startchar,
-                        endchar=self.endchar, chars=True)
+    def _words(self, ixreader):
+        raise NotImplementedError
 
     def simplify(self, ixreader):
-        fieldname = self.field()
-
-        if fieldname not in ixreader.schema:
-            return qcore.NullQuery()
-        field = ixreader.schema[fieldname]
-
-        existing = []
-        for btext in sorted(set(self._btexts(ixreader))):
-            text = field.from_bytes(btext)
-            existing.append(Term(fieldname, text, boost=self.boost))
-
+        existing = [Term(self.fieldname, word, boost=self.boost)
+                    for word in sorted(set(self._words(ixreader)))]
         if len(existing) == 1:
             return existing[0]
         elif existing:
@@ -192,42 +133,76 @@ class MultiTerm(qcore.Query):
             return qcore.NullQuery
 
     def estimate_size(self, ixreader):
-        fieldname = self.field()
-        return sum(ixreader.doc_frequency(fieldname, btext)
-                   for btext in self._btexts(ixreader))
+        return sum(ixreader.doc_frequency(self.fieldname, text)
+                   for text in self._words(ixreader))
 
     def estimate_min_size(self, ixreader):
-        fieldname = self.field()
-        return min(ixreader.doc_frequency(fieldname, text)
-                   for text in self._btexts(ixreader))
+        return min(ixreader.doc_frequency(self.fieldname, text)
+                   for text in self._words(ixreader))
 
-    def matcher(self, searcher, context=None):
-        from whoosh.query import Or
+    def existing_terms(self, ixreader, termset=None, reverse=False,
+                       phrases=True, expand=False):
+        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
 
+        if not expand:
+            return termset
         fieldname = self.field()
+        if fieldname is None:
+            return termset
+
+        for word in self._words(ixreader):
+            term = (fieldname, word)
+            if test(term):
+                termset.add(term)
+        return termset
+
+    def matcher(self, searcher, weighting=None):
+        fieldname = self.fieldname
         constantscore = self.constantscore
-
         reader = searcher.reader()
-        qs = [Term(fieldname, word) for word in self._btexts(reader)
-              if word]
+        qs = [Term(fieldname, word) for word in self._words(reader)]
         if not qs:
             return matching.NullMatcher()
 
         if len(qs) == 1:
             # If there's only one term, just use it
-            m = qs[0].matcher(searcher, context)
-        else:
+            q = qs[0]
+        elif constantscore or len(qs) > self.TOO_MANY_CLAUSES:
+            # If there's so many clauses that an Or search would take forever,
+            # trade memory for time and just find all the matching docs serve
+            # them up as one or more ListMatchers
+            fmt = searcher.schema[fieldname].format
+            doc_to_values = defaultdict(list)
+            doc_to_weights = defaultdict(float)
+            for q in qs:
+                m = q.matcher(searcher)
+                while m.is_active():
+                    docnum = m.id()
+                    doc_to_values[docnum].append(m.value())
+                    if not constantscore:
+                        doc_to_weights[docnum] += m.weight()
+                    m.next()
+
+            docnums = sorted(doc_to_values.keys())
+            # This is a list of lists of value strings -- ListMatcher will
+            # actually do the work of combining multiple values if the user
+            # asks for them
+            values = [doc_to_values[docnum] for docnum in docnums]
+
+            kwargs = {"values": values, "format": fmt}
             if constantscore:
-                # To tell the sub-query that score doesn't matter, set weighting
-                # to None
-                if context:
-                    context = context.set(weighting=None)
-                else:
-                    from whoosh.searching import SearchContext
-                    context = SearchContext(weighting=None)
-            # Or the terms together
-            m = Or(qs, boost=self.boost).matcher(searcher, context)
-        return m
+                kwargs["all_weights"] = self.boost
+            else:
+                kwargs["weights"] = [doc_to_weights[docnum]
+                                     for docnum in docnums]
+
+            return matching.ListMatcher(docnums, **kwargs)
+        else:
+            # The default case: Or the terms together
+            from whoosh.query import Or
+            q = Or(qs)
+
+        return q.matcher(searcher, weighting=weighting)
 
 
 class PatternQuery(MultiTerm):
@@ -266,15 +241,12 @@ class PatternQuery(MultiTerm):
         # Subclasses/instances should set the SPECIAL_CHARS attribute to a set
         # of characters that mark the end of the literal prefix
         specialchars = self.SPECIAL_CHARS
-        i = 0
         for i, char in enumerate(text):
             if char in specialchars:
                 break
         return text[:i]
 
-    def _btexts(self, ixreader):
-        field = ixreader.schema[self.fieldname]
-
+    def _words(self, ixreader):
         exp = re.compile(self._get_pattern())
         prefix = self._find_prefix(self.text)
         if prefix:
@@ -282,11 +254,9 @@ class PatternQuery(MultiTerm):
         else:
             candidates = ixreader.lexicon(self.fieldname)
 
-        from_bytes = field.from_bytes
-        for btext in candidates:
-            text = from_bytes(btext)
+        for text in candidates:
             if exp.match(text):
-                yield btext
+                yield text
 
 
 class Prefix(PatternQuery):
@@ -301,16 +271,8 @@ class Prefix(PatternQuery):
 
     __str__ = __unicode__
 
-    def _btexts(self, ixreader):
+    def _words(self, ixreader):
         return ixreader.expand_prefix(self.fieldname, self.text)
-
-    def matcher(self, searcher, context=None):
-        if self.text == "":
-            from whoosh.query import Every
-            eq = Every(self.fieldname, boost=self.boost)
-            return eq.matcher(searcher, context)
-        else:
-            return PatternQuery.matcher(self, searcher, context)
 
 
 class Wildcard(PatternQuery):
@@ -320,7 +282,7 @@ class Wildcard(PatternQuery):
     >>> Wildcard("content", u"in*f?x")
     """
 
-    SPECIAL_CHARS = frozenset("*?[")
+    SPECIAL_CHARS = frozenset("*?")
 
     def __unicode__(self):
         return "%s:%s" % (self.fieldname, self.text)
@@ -348,15 +310,7 @@ class Wildcard(PatternQuery):
         else:
             return self
 
-    def matcher(self, searcher, context=None):
-        if self.text == "*":
-            from whoosh.query import Every
-            eq = Every(self.fieldname, boost=self.boost)
-            return eq.matcher(searcher, context)
-        else:
-            return PatternQuery.matcher(self, searcher, context)
-
-    # _btexts() implemented in PatternQuery
+    # _words() implemented in PatternQuery
 
 
 class Regex(PatternQuery):
@@ -394,15 +348,7 @@ class Regex(PatternQuery):
             prefix = prefix[:-1]
         return prefix
 
-    def matcher(self, searcher, context=None):
-        if self.text == ".*":
-            from whoosh.query import Every
-            eq = Every(self.fieldname, boost=self.boost)
-            return eq.matcher(searcher, context)
-        else:
-            return PatternQuery.matcher(self, searcher, context)
-
-    # _btexts() implemented in PatternQuery
+    # _words() implemented in PatternQuery
 
 
 class ExpandingTerm(MultiTerm):
@@ -413,9 +359,10 @@ class ExpandingTerm(MultiTerm):
     def has_terms(self):
         return True
 
-    def terms(self, phrases=False):
-        if self.field():
-            yield (self.field(), self.text)
+    def tokens(self, boost=1.0):
+        yield Token(fieldname=self.fieldname, text=self.text,
+                    boost=boost * self.boost, startchar=self.startchar,
+                    endchar=self.endchar, chars=True)
 
 
 class FuzzyTerm(ExpandingTerm):
@@ -461,7 +408,7 @@ class FuzzyTerm(ExpandingTerm):
                     self.boost, self.maxdist, self.prefixlength)
 
     def __unicode__(self):
-        r = u("%s:%s") % (self.fieldname, self.text) + u("~")
+        r = self.text + u("~")
         if self.maxdist > 1:
             r += u("%d") % self.maxdist
         if self.boost != 1.0:
@@ -475,15 +422,9 @@ class FuzzyTerm(ExpandingTerm):
                 ^ hash(self.maxdist) ^ hash(self.prefixlength)
                 ^ hash(self.constantscore))
 
-    def _btexts(self, ixreader):
+    def _words(self, ixreader):
         return ixreader.terms_within(self.fieldname, self.text, self.maxdist,
                                      prefix=self.prefixlength)
-
-    def replace(self, fieldname, oldtext, newtext):
-        q = copy.copy(self)
-        if q.fieldname == fieldname and q.text == oldtext:
-            q.text = newtext
-        return q
 
 
 class Variations(ExpandingTerm):
@@ -511,17 +452,10 @@ class Variations(ExpandingTerm):
     def __hash__(self):
         return hash(self.fieldname) ^ hash(self.text) ^ hash(self.boost)
 
-    def _btexts(self, ixreader):
+    def _words(self, ixreader):
         fieldname = self.fieldname
-        to_bytes = ixreader.schema[fieldname].to_bytes
-        for word in variations(self.text):
-            try:
-                btext = to_bytes(word)
-            except ValueError:
-                continue
-
-            if (fieldname, btext) in ixreader:
-                yield btext
+        return [word for word in variations(self.text)
+                if (fieldname, word) in ixreader]
 
     def __unicode__(self):
         return u("%s:<%s>") % (self.fieldname, self.text)
@@ -533,3 +467,5 @@ class Variations(ExpandingTerm):
         if q.fieldname == fieldname and q.text == oldtext:
             q.text = newtext
         return q
+
+

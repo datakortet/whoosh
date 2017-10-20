@@ -2,15 +2,18 @@
 Concurrency, locking, and versioning
 ====================================
 
+The following refers to the default ``filedb`` backend.
+
+
 Concurrency
 ===========
 
 The ``FileIndex`` object is "stateless" and should be share-able between
 threads.
 
-A ``Reader`` object (which underlies the ``Searcher`` object) wraps open files and often
+A Reader object (which underlies the Searcher object) wraps open files and often
 individual methods rely on consistent file cursor positions (e.g. they do two
-``file.read()``\ s in a row, so if another thread moves the cursor between the two
+file.read()s in a row, so if another thread moves the cursor between the two
 read calls Bad Things would happen). You should use one Reader/Searcher per
 thread in your code.
 
@@ -27,7 +30,7 @@ it locks the index. If you try to open a writer on the same index in another
 thread/process, it will raise ``whoosh.store.LockError``.
 
 In a multi-threaded or multi-process environment your code needs to be aware
-that opening a writer may raise this exception if a writer is already open.
+than opening a writer may raise this exception if a writer is already open.
 Whoosh includes a couple of example implementations
 (:class:`whoosh.writing.AsyncWriter` and :class:`whoosh.writing.BufferedWriter`)
 of ways to work around the write lock.

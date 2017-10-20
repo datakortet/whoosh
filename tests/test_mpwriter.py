@@ -2,26 +2,26 @@ from __future__ import with_statement
 import random
 from collections import deque
 
-import pytest
+from nose.tools import assert_equal  # @UnresolvedImport
 
 from whoosh import fields, query
-from whoosh.compat import u, izip, xrange, permutations, text_type
-from whoosh.util.numeric import length_to_byte, byte_to_length
-from whoosh.util.testing import TempIndex
+from whoosh.compat import u, xrange, permutations
+from whoosh.support.testing import TempIndex, skip_if
+from whoosh.util import length_to_byte, byte_to_length
 
 
-def check_multi():
+def no_multi():
     try:
         import multiprocessing
         import multiprocessing.synchronize  # @UnusedImport
     except ImportError:
-        pytest.skip()
+        return True
     else:
         try:
             from multiprocessing import Queue
             Queue()
         except OSError:
-            pytest.skip()
+            return True
         else:
             return False
 
@@ -39,7 +39,7 @@ def _do_basic(writerclass):
     docs = []
     # A ring buffer for creating string values
     buf = deque()
-    for ls in permutations(u("abcd")):
+    for ls in permutations(u("abcdef")):
         word = "".join(ls)
         # Remember this word is in the index (to check lexicon)
         words.append(word)
@@ -61,7 +61,7 @@ def _do_basic(writerclass):
                                             vector=True),
                            row=fields.NUMERIC(stored=True))
 
-    with TempIndex(schema, storage_debug=True) as ix:
+    with TempIndex(schema) as ix:
         # Add the domain data to the index
         with writerclass(ix, procs=3) as w:
             for i, value in enumerate(docs):
@@ -71,15 +71,19 @@ def _do_basic(writerclass):
             r = s.reader()
 
             # Check the lexicon
-            for word, term in izip(words, r.field_terms("text")):
-                assert word == term
+            assert_equal(list(r.lexicon("text")), words)
             # Check the doc count
-            assert r.doc_count_all() == len(docs)
+            assert_equal(r.doc_count_all(), len(docs))
+
+            # Check the word graph
+            assert r.has_word_graph("text")
+            flat = [w.decode("latin1") for w in r.word_graph("text").flatten()]
+            assert_equal(flat, words)
 
             # Check there are lengths
             total = sum(r.doc_field_length(docnum, "text", 0)
                         for docnum in xrange(r.doc_count_all()))
-            assert total > 0
+            assert total > 0, total
 
             # Check per-doc info
             for i, value in enumerate(docs):
@@ -88,7 +92,7 @@ def _do_basic(writerclass):
 
                 # Check stored value
                 sv = r.stored_fields(docnum)
-                assert sv["text"] == value
+                assert_equal(sv["text"], value)
 
                 # Check vectors
                 vr = r.vector(docnum, "text")
@@ -96,35 +100,35 @@ def _do_basic(writerclass):
                 iv = list(vr.items_as("positions"))
                 # What the vector should look like
                 ov = sorted((text, [i]) for i, text in enumerate(pieces))
-                assert iv == ov
+                assert_equal(iv, ov)
 
                 # Check field length
-                assert r.doc_field_length(docnum, "text") == len(pieces)
+                assert_equal(r.doc_field_length(docnum, "text"), len(pieces))
 
 
+@skip_if(no_multi)
 def test_basic_serial():
-    check_multi()
-    from whoosh.multiproc import SerialMpWriter
+    from whoosh.filedb.multiproc import SerialMpWriter
 
     _do_basic(SerialMpWriter)
 
 
+@skip_if(no_multi)
 def test_basic_multi():
-    check_multi()
-    from whoosh.multiproc import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     _do_basic(MpWriter)
 
 
+@skip_if(no_multi)
 def test_no_add():
-    check_multi()
-    from whoosh.multiproc import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     schema = fields.Schema(text=fields.TEXT(stored=True, spelling=True,
                                             vector=True))
     with TempIndex(schema) as ix:
         with ix.writer(procs=3) as w:
-            assert type(w) == MpWriter
+            assert_equal(type(w), MpWriter)
 
 
 def _do_merge(writerclass):
@@ -161,29 +165,31 @@ def _do_merge(writerclass):
             w.add_document(key=u(key), value=u(domain[key]))
         w.commit(optimize=True)
 
-        assert len(ix._segments()) == 1
+        assert_equal(len(ix._segments()), 1)
 
         with ix.searcher() as s:
             r = s.reader()
 
-            assert s.doc_count() == len(domain)
+            assert_equal(s.doc_count(), len(domain))
 
-            assert "".join(r.field_terms("key")) == "acdefghijk"
-            assert " ".join(r.field_terms("value")) == "aa cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr ss tt uu ww xx yy zz"
+            assert_equal("".join(r.lexicon("key")), "acdefghijk")
+            assert_equal(" ".join(r.lexicon("value")),
+                         "aa cc dd ee ff gg hh ii jj kk ll mm nn oo pp qq rr" +
+                         " ss tt uu ww xx yy zz")
 
             for key in domain:
                 docnum = s.document_number(key=key)
-                assert docnum is not None
+                assert docnum is not None, "key=%r" % key
 
                 length = r.doc_field_length(docnum, "value")
                 assert length
-                assert _byten(len(domain[key].split())) == length
+                assert_equal(_byten(len(domain[key].split())), length)
 
                 sf = r.stored_fields(docnum)
-                assert domain[key] == sf["value"]
+                assert_equal(domain[key], sf["value"])
 
             words = sorted(set((" ".join(domain.values())).split()))
-            assert words == list(r.field_terms("value"))
+            assert_equal(words, list(r.lexicon("value")))
 
             for word in words:
                 hits = s.search(query.Term("value", word))
@@ -191,23 +197,23 @@ def _do_merge(writerclass):
                     assert word in hit["value"].split()
 
 
+@skip_if(no_multi)
 def test_merge_serial():
-    check_multi()
-    from whoosh.multiproc import SerialMpWriter
+    from whoosh.filedb.multiproc import SerialMpWriter
 
     _do_merge(SerialMpWriter)
 
 
+@skip_if(no_multi)
 def test_merge_multi():
-    check_multi()
-    from whoosh.multiproc import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     _do_merge(MpWriter)
 
 
+@skip_if(no_multi)
 def test_no_score_no_store():
-    check_multi()
-    from whoosh.multiproc import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.ID, b=fields.KEYWORD)
     domain = {}
@@ -225,25 +231,25 @@ def test_no_score_no_store():
         with ix.searcher() as s:
             for word in words:
                 r = s.search(query.Term("b", word))
-                assert len(r) == 6
+                assert_equal(len(r), 6)
 
 
+@skip_if(no_multi)
 def test_multisegment():
-    check_multi()
-    from whoosh.multiproc import MpWriter
+    from whoosh.filedb.multiproc import MpWriter
 
     schema = fields.Schema(a=fields.TEXT(stored=True, spelling=True,
                                          vector=True))
     words = u("alfa bravo charlie delta echo").split()
     with TempIndex(schema) as ix:
         with ix.writer(procs=3, multisegment=True, batchsize=10) as w:
-            assert w.__class__ == MpWriter
+            assert_equal(w.__class__, MpWriter)
             assert w.multisegment
 
             for ls in permutations(words, 3):
-                w.add_document(a=u(" ").join(ls))
+                w.add_document(a=" ".join(ls))
 
-        assert len(ix._segments()) == 3
+        assert_equal(len(ix._segments()), 3)
 
         with ix.searcher() as s:
             for word in words:
@@ -252,8 +258,10 @@ def test_multisegment():
                     assert word in hit["a"].split()
 
 
+@skip_if(no_multi)
 def test_batchsize_eq_doccount():
-    check_multi()
+    from whoosh.filedb.multiproc import MpWriter
+
     schema = fields.Schema(a=fields.KEYWORD(stored=True))
     with TempIndex(schema) as ix:
         with ix.writer(procs=4, batchsize=10) as w:
@@ -261,17 +269,8 @@ def test_batchsize_eq_doccount():
                 w.add_document(a=u(str(i)))
 
 
-def test_finish_segment():
-    check_multi()
 
-    from whoosh.multiproc import MpWriter
 
-    schema = fields.Schema(a=fields.KEYWORD(stored=True))
-    with TempIndex(schema) as ix:
-        w = MpWriter(ix, procs=2, batchsize=1, multisegment=False,
-                     limitmb=0.00001)
 
-        for i in range(100):
-            w.add_document(a=text_type(i) * 10)
 
-        w.commit()
+

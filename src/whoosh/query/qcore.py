@@ -166,12 +166,6 @@ class Query(object):
     # in this query
     error = None
 
-    def __unicode__(self):
-        raise NotImplementedError(self.__class__.__name__)
-
-    def __getitem__(self, item):
-        raise NotImplementedError
-
     def __or__(self, query):
         """Allows you to use | between query objects to wrap them in an Or
         query.
@@ -228,12 +222,6 @@ class Query(object):
         meaningful on this instance).
         """
 
-        return False
-
-    def needs_spans(self):
-        for child in self.children():
-            if child.needs_spans():
-                return True
         return False
 
     def apply(self, fn):
@@ -310,68 +298,68 @@ class Query(object):
 
         return copy.deepcopy(self)
 
-    def all_terms(self, phrases=True):
+    def all_terms(self, termset=None, phrases=True):
         """Returns a set of all terms in this query tree.
 
-        This method exists for backwards-compatibility. Use iter_all_terms()
-        instead.
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply
+        yields the terms in the query.
 
         :param phrases: Whether to add words found in Phrase queries.
         :rtype: set
         """
 
-        return set(self.iter_all_terms(phrases=phrases))
+        from whoosh.query import Phrase
 
-    def terms(self, phrases=False):
-        """Yields zero or more (fieldname, text) pairs queried by this object.
-        You can check whether a query object targets specific terms before you
-        call this method using :meth:`Query.has_terms`.
+        if not termset:
+            termset = set()
+        for q in self.leaves():
+            if q.has_terms():
+                if phrases or not isinstance(q, Phrase):
+                    termset.update(q.terms())
+        return termset
 
-        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
-        """
+    def _existing_terms_helper(self, ixreader, termset, reverse):
+        if termset is None:
+            termset = set()
+        if reverse:
+            test = lambda t: t not in ixreader
+        else:
+            test = lambda t: t in ixreader
 
-        return iter(())
+        return termset, test
 
-    def expanded_terms(self, ixreader, phrases=True):
-        return self.terms(phrases=phrases)
+    def existing_terms(self, ixreader, termset=None, reverse=False,
+                       phrases=True, expand=False):
+        """Returns a set of all terms in this query tree that exist in the
+        given ixreaderder.
 
-    def existing_terms(self, ixreader, phrases=True, expand=False, fieldname=None):
-        """Returns a set of all byteterms in this query tree that exist in
-        the given ixreader.
+        This method exists for backwards compatibility. For more flexibility
+        use the :meth:`Query.iter_all_terms` method instead, which simply
+        yields the terms in the query.
 
         :param ixreader: A :class:`whoosh.reading.IndexReader` object.
+        :param reverse: If True, this method adds *missing* terms rather than
+            *existing* terms to the set.
         :param phrases: Whether to add words found in Phrase queries.
         :param expand: If True, queries that match multiple terms
-            will return all matching expansions.
+            (such as :class:`Wildcard` and :class:`Prefix`) will return all
+            matching expansions.
         :rtype: set
         """
 
-        schema = ixreader.schema
-        termset = set()
+        # By default, this method calls all_terms() and then filters based on
+        # the contents of the reader. Subclasses that need to use the reader to
+        # generate the terms (i.e. MultiTerm) need to override this
+        # implementation
 
-        for q in self.leaves():
-            if fieldname and fieldname != q.field():
-                continue
-
-            if expand:
-                terms = q.expanded_terms(ixreader, phrases=phrases)
-            else:
-                terms = q.terms(phrases=phrases)
-
-            for fieldname, text in terms:
-                if (fieldname, text) in termset:
-                    continue
-
-                if fieldname in schema:
-                    field = schema[fieldname]
-
-                    try:
-                        btext = field.to_bytes(text)
-                    except ValueError:
-                        continue
-
-                    if (fieldname, btext) in ixreader:
-                        termset.add((fieldname, btext))
+        termset, test = self._existing_terms_helper(ixreader, termset, reverse)
+        if self.is_leaf():
+            gen = self.all_terms(phrases=phrases)
+            termset.update(t for t in gen if test(t))
+        else:
+            for q in self.children():
+                q.existing_terms(ixreader, termset, reverse, phrases, expand)
         return termset
 
     def leaves(self):
@@ -386,8 +374,8 @@ class Query(object):
                 for qq in q.leaves():
                     yield qq
 
-    def iter_all_terms(self, phrases=True):
-        """Returns an iterator of (fieldname, text) pairs for all terms in
+    def iter_all_terms(self):
+        """Returns an iterator of ("fieldname", "text") pairs for all terms in
         this query tree.
 
         >>> qp = qparser.QueryParser("text", myindex.schema)
@@ -403,13 +391,11 @@ class Query(object):
         >>> # the index
         >>> [t for t in q.iter_all_terms() if r.doc_frequency(t[0], t[1]) < 5]
         [("title", "charlie")]
-
-        :param phrases: Whether to add words found in Phrase queries.
         """
 
         for q in self.leaves():
             if q.has_terms():
-                for t in q.terms(phrases=phrases):
+                for t in q.terms():
                     yield t
 
     def all_tokens(self, boost=1.0):
@@ -430,7 +416,18 @@ class Query(object):
                 for token in child.all_tokens(boost):
                     yield token
 
-    def tokens(self, boost=1.0, exreader=None):
+    def terms(self):
+        """Yields zero or more ("fieldname", "text") pairs searched for by this
+        query object. You can check whether a query object targets specific
+        terms before you call this method using :meth:`Query.has_terms`.
+
+        To get all terms in a query tree, use :meth:`Query.iter_all_terms`.
+        """
+
+        for token in self.tokens():
+            yield (token.fieldname, token.text)
+
+    def tokens(self, boost=1.0):
         """Yields zero or more :class:`analysis.Token` objects corresponding to
         the terms searched for by this query object. You can check whether a
         query object targets specific terms before you call this method using
@@ -442,12 +439,9 @@ class Query(object):
         indexing into the original user query.
 
         To get all tokens for a query tree, use :meth:`Query.all_tokens`.
-
-        :param exreader: a reader to use to expand multiterm queries such as
-            prefixes and wildcards. The default is None meaning do not expand.
         """
 
-        return iter(())
+        return []
 
     def requires(self):
         """Returns a set of queries that are *known* to be required to match
@@ -504,7 +498,7 @@ class Query(object):
 
         return self.estimate_size(ixreader)
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         """Returns a :class:`~whoosh.matching.Matcher` object you can use to
         retrieve documents and scores matching this query.
 
@@ -524,8 +518,7 @@ class Query(object):
         """
 
         try:
-            context = searcher.boolean_context()
-            return self.matcher(searcher, context).all_ids()
+            return self.matcher(searcher).all_ids()
         except TermNotFound:
             return iter([])
 
@@ -573,17 +566,11 @@ class _NullQuery(Query):
 
     boost = 1.0
 
-    def __init__(self):
-        self.error = None
-
-    def __unicode__(self):
-        return u("<_NullQuery>")
-
     def __call__(self):
         return self
 
     def __repr__(self):
-        return "<%s>" % (self.__class__.__name__)
+        return "<%s>" % (self.__class__.__name__,)
 
     def __eq__(self, other):
         return isinstance(other, _NullQuery)
@@ -615,7 +602,7 @@ class _NullQuery(Query):
     def docs(self, searcher):
         return []
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         return matching.NullMatcher()
 
 
@@ -695,13 +682,20 @@ class Every(Query):
     def estimate_size(self, ixreader):
         return ixreader.doc_count()
 
-    def matcher(self, searcher, context=None):
+    def matcher(self, searcher, weighting=None):
         fieldname = self.fieldname
         reader = searcher.reader()
 
         if fieldname in (None, "", "*"):
             # This takes into account deletions
             doclist = array("I", reader.all_doc_ids())
+        elif (reader.supports_caches()
+              and reader.fieldcache_available(fieldname)):
+            # If the reader has a field cache, use it to quickly get the list
+            # of documents that have a value for this field
+            fc = reader.fieldcache(self.fieldname)
+            doclist = array("I", (docnum for docnum, ordinal in fc.ords()
+                                  if ordinal != 0))
         else:
             # This is a hacky hack, but just create an in-memory set of all the
             # document numbers of every term in the field. This is SLOOOW for
@@ -713,3 +707,4 @@ class Every(Query):
             doclist = sorted(doclist)
 
         return matching.ListMatcher(doclist, all_weights=self.boost)
+

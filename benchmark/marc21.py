@@ -2,7 +2,6 @@ from __future__ import with_statement, print_function
 import fnmatch, logging, os.path, re
 
 from whoosh import analysis, fields, index, qparser, query, scoring
-from whoosh.compat import xrange
 from whoosh.util import now
 
 
@@ -161,7 +160,7 @@ def pubyear(d):
 
 
 def uni(v):
-    return u"" if v is None else v.decode("utf-8", "replace")
+    return u"" if v is None else v.decode("utf8", "replace")
 
 
 # Indexing and searching
@@ -289,9 +288,12 @@ if __name__ == "__main__":
                    glob=options.glob)
 
     if args:
-        qstring = " ".join(args).decode("utf-8")
+        qstring = " ".join(args).decode("utf8")
         limit = int(options.limit)
         if limit < 1:
             limit = None
         search(qstring, options.ixdir, options.basedir, limit=limit,
                optimize=options.optimize, scores=options.scores)
+
+
+
