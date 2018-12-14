@@ -147,7 +147,6 @@ src/whoosh/support/externalsort.py
 src/whoosh/support/filelock.py
 src/whoosh/support/levenshtein.py
 src/whoosh/support/numeric.py
-src/whoosh/support/numlists.py
 src/whoosh/support/relativedelta.py
 src/whoosh/support/testing.py
 src/whoosh/support/times.py
